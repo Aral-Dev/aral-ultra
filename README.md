@@ -1,11 +1,11 @@
 <div align="center">
 
-# ARAL ULTRA · V4.1 — OBSIDIAN & GOLD · ULTRA EDITION
+# ARAL ULTRA · V4.2 — OBSIDIAN & GOLD · ULTRA EDITION
 
 **پنل آزاد و رایگانِ مدیریت اشتراک VLESS، Trojan و Shadowsocks و پروکسی رسمی تلگرام روی شبکهٔ ابری کلادفلر — به‌هم‌پیوستهٔ دو نسل پنل، با قوی‌ترین قابلیت‌ها**
 *Free Serverless VLESS, Trojan & Shadowsocks, Fragment/Pattern/ECH anti-DPI, Multi-Location Exits & Official Telegram Web Proxy Panel on Cloudflare Workers & Pages*
 
-![Version](https://img.shields.io/badge/Version-4.1.0_ULTRA-d4af37?style=flat-square) ![Runtime](https://img.shields.io/badge/Cloudflare-Workers%20%26%20Pages-0c0b09?style=flat-square) ![Theme](https://img.shields.io/badge/Theme-Obsidian%20%26%20Gold-8a6a14?style=flat-square)
+![Version](https://img.shields.io/badge/Version-4.2.0_ULTRA-d4af37?style=flat-square) ![Runtime](https://img.shields.io/badge/Cloudflare-Workers%20%26%20Pages-0c0b09?style=flat-square) ![Theme](https://img.shields.io/badge/Theme-Obsidian%20%26%20Gold-8a6a14?style=flat-square)
 
 [کانال رسمی / Official Channel — Telegram](https://t.me/AralDev)
 
@@ -53,7 +53,11 @@
 - **پیش‌تنظیم‌های اپراتوری ایران**: همراه اول، ایرانسل، رایتل، مخابرات و گیمینگ — یک‌ضرب روی هر مشترک
   *Iranian ISP fragmentation presets (MCI / Irancell / Rightel / TCI / Gaming) per subscriber*
 
-### افزوده‌های نسخهٔ ۴.۱ / What's New in v4.1
+### افزوده‌های نسخهٔ ۴.۲ / What's New in v4.2
+- **بات مدیریتی تلگرام** — توکن بات + آیدی عددی ادمین را در پنل ثبت کنید؛ وبهوک خودکار ست می‌شود. `/start` منوی «مشترکین» و «پنل» را می‌دهد و با انتخاب هر مشترک، QR پنل + همهٔ لینک‌های اشتراک + نودهای اصلی در تلگرام ارسال می‌شود.
+  *Telegram management bot — paste a BotFather token + numeric admin ID in the panel; the webhook is set automatically. /start offers "Subscribers" and "Panel"; tapping a subscriber delivers the panel QR plus every subscription link.*
+- **آی‌پی تمیزِ آماده از مخزن رسمی** — مخازن داده به‌طور پیش‌فرض روی `Aral-Dev/aral-ultra` ست می‌شوند و در اولین اجرا، IP تمیز/دامنه/پروکسی از پوشهٔ `data/` همان مخزن به‌طور خودکار بارگذاری و به‌عنوان پیش‌فرض پنل اعمال می‌شود (چرخش IP تمیز واقعاً از مخزن تغذیه می‌شود — رفع باگ).
+  *Clean-IPs ready by default — data pools now default to `Aral-Dev/aral-ultra`; on first boot the clean IPs/domains/proxies from that repo's `data/` folder are auto-loaded into KV and seeded as the panel defaults (fixes the rotation-never-used-repo bug).*
 - **اعمال قوانین در میانهٔ اتصال (Heartbeat)** — هر ~۲۲ ثانیه وضعیت مشترک بازبینی می‌شود؛ اتمام حجم/سهمیه، انقضا، توقف یا حذف، تونلِ زنده را بلافاصله قطع می‌کند
   *Mid-connection enforcement heartbeat (~22s): quota/expiry/pause/deletion kills live tunnels instantly*
 - **حسابداری عمر و مشترکین حذف‌شده** — مصرفِ کلِّ عمر هر مشترک هرگز ریست نمی‌شود و با حذف مشترک به حساب سرور منتقل می‌شود

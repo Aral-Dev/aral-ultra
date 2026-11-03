@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ARAL ULTRA v4.1.0 — Comprehensive Live `workerd` + Playwright + TLS-over-VLESS E2E Suite (17/17 Suites)
+ * ARAL ULTRA v4.2.0 — Comprehensive Live `workerd` + Playwright + TLS-over-VLESS E2E Suite (17/17 Suites)
  */
 
 import assert from 'node:assert/strict';
@@ -203,25 +203,25 @@ async function startMockCloudflareAndGitHubServer(stateRecorder) {
       }));
     }
 
-    // Hardcoded GitHub `AralDev/Aral` Mock
-    if (u.pathname === '/gh/repos/AralDev/Aral/releases/latest') {
+    // Hardcoded GitHub `Aral-Dev/aral-ultra` Mock
+    if (u.pathname === '/gh/repos/Aral-Dev/aral-ultra/releases/latest') {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({
-        tag_name: 'v4.2.0',
-        html_url: 'https://github.com/AralDev/Aral/releases/tag/v4.2.0',
-        body: '- Official test release from AralDev/Aral (ULTRA)',
+        tag_name: 'v4.3.0',
+        html_url: 'https://github.com/Aral-Dev/aral-ultra/releases/tag/v4.3.0',
+        body: '- Official test release from Aral-Dev/aral-ultra (ULTRA)',
         published_at: '2026-10-31T12:00:00Z',
         assets: [
           {
             name: 'worker-single-file.js',
-            browser_download_url: `${MOCK_BASE}/ghraw/AralDev/Aral/v4.2.0/worker-single-file.js`,
+            browser_download_url: `${MOCK_BASE}/ghraw/Aral-Dev/aral-ultra/v4.3.0/worker-single-file.js`,
           },
         ],
       }));
     }
-    if (u.pathname === '/ghraw/AralDev/Aral/main/package.json') {
+    if (u.pathname === '/ghraw/Aral-Dev/aral-ultra/main/package.json') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ name: 'aral', version: '4.2.0' }));
+      return res.end(JSON.stringify({ name: 'aral', version: '4.2.0' })); // main branch matches installed
     }
     if (u.pathname.endsWith('/worker-single-file.js')) {
       res.writeHead(200, { 'content-type': 'application/javascript' });
@@ -237,7 +237,7 @@ async function startMockCloudflareAndGitHubServer(stateRecorder) {
 }
 
 async function main() {
-  console.log('═══ ARAL ULTRA v4.1.0 Full Live Verification Suite (17/17) ═══');
+  console.log('═══ ARAL ULTRA v4.2.0 Full Live Verification Suite (17/17) ═══');
 
   const mockRecorder = { workerUploads: [] };
   const mockSrv = await startMockCloudflareAndGitHubServer(mockRecorder);
@@ -260,6 +260,8 @@ async function main() {
       `NL_GH_API_BASE:${MOCK_BASE}/gh`,
       '--var',
       `NL_GH_RAW_BASE:${MOCK_BASE}/ghraw`,
+      '--var',
+      'NL_DISABLE_POOL_PROVISION:1',
     ],
     { stdio: ['ignore', 'pipe', 'pipe'] }
   );
@@ -281,7 +283,7 @@ async function main() {
 
     // ── TEST 1: Health, Client-Info & Speed-Probe Endpoints (v3.0.0) ──
     const health = await (await fetch(`${BASE}/health`)).json();
-    assert.equal(health.version, '4.1.0', 'Health version must be 4.1.0');
+    assert.equal(health.version, '4.2.0', 'Health version must be 4.2.0');
     assert.notEqual(health.colo, 'EDGE', 'colo must never be EDGE');
 
     const ciRes = await fetch(`${BASE}/api/client-info`, {
@@ -314,9 +316,9 @@ async function main() {
     const cookie = (setupRes.headers.get('set-cookie') || '').split(';')[0];
     const boot = await setupRes.json();
 
-    assert.equal(boot.version, '4.1.0');
-    assert.equal(boot.updater.repo, 'AralDev/Aral', 'Hardcoded official GitHub repo must be AralDev/Aral');
-    assert.equal(boot.updater.repoUrl, 'https://github.com/AralDev/Aral');
+    assert.equal(boot.version, '4.2.0');
+    assert.equal(boot.updater.repo, 'Aral-Dev/aral-ultra', 'Hardcoded official GitHub repo must be Aral-Dev/aral-ultra');
+    assert.equal(boot.updater.repoUrl, 'https://github.com/Aral-Dev/aral-ultra');
     assert.equal(boot.settings.remarkPrefix, undefined, 'remarkPrefix must be completely removed');
     assert(boot.settings.proxyIPs.length >= 3, 'Default verified ProxyIPs must be populated');
     assert.equal(boot.settings.enableNAT64, true, 'Default NAT64 must be enabled');
@@ -772,7 +774,7 @@ async function main() {
     await page.click('#btn-cf-close');
     console.log(`✓ [14/16] Cloudflare Daily Request Quota Bar & Token Verifier -> ${cfBarState.miniTxt} (${cfBarState.miniWidth}), mini permissions popup verified`);
 
-    // ── TEST 15: Hardcoded GitHub (`AralDev/Aral`) Updater & Self-Deploy + Tab 05 Spacing & Clean Copy Audit ──
+    // ── TEST 15: Hardcoded GitHub (`Aral-Dev/aral-ultra`) Updater & Self-Deploy + Tab 05 Spacing & Clean Copy Audit ──
     const copyAndSpacingAudit = await page.evaluate(() => {
       const fullHtmlText = document.documentElement.innerHTML;
       const bannedMetaPhrases = [
@@ -801,7 +803,7 @@ async function main() {
     });
     assert(gapTab5 >= 12 && Math.abs(gapTab5 - copyAndSpacingAudit.gapTab1) <= 1, `Tab 05 gap (${gapTab5}px) must match Tab 01 gap (${copyAndSpacingAudit.gapTab1}px)`);
 
-    // Open Hardcoded GitHub Updater Modal, check `AralDev/Aral`, and trigger In-Panel Self-Update!
+    // Open Hardcoded GitHub Updater Modal, check `Aral-Dev/aral-ultra`, and trigger In-Panel Self-Update!
     await page.click('#btn-gh-updater');
     await page.waitForSelector('#gh-modal:not([hidden])');
     await sleep(450);
@@ -810,8 +812,8 @@ async function main() {
       remVer: document.getElementById('gh-rem-ver')?.textContent || '',
       dotVisible: !document.getElementById('gh-upd-dot')?.hidden,
     }));
-    assert.equal(ghUi.repoHref, 'https://github.com/AralDev/Aral');
-    assert.equal(ghUi.remVer, 'V4.2.0', `Expected V4.2.0 from mock GitHub release, got: ${ghUi.remVer}`);
+    assert.equal(ghUi.repoHref, 'https://github.com/Aral-Dev/aral-ultra');
+    assert.equal(ghUi.remVer, 'V4.3.0', `Expected V4.3.0 from mock GitHub release, got: ${ghUi.remVer}`);
     assert.equal(ghUi.dotVisible, true, 'Update NEW indicator must appear when newer version exists on GitHub');
 
     await page.click('#btn-gh-apply');
@@ -822,7 +824,7 @@ async function main() {
     assert(upload.bodyText.includes('"kv_ns_demo_123"'), 'Self-updater MUST preserve existing KV namespace bindings');
     assert(upload.bodyText.includes('"keep_bindings":["secret_text","secret_key"]'), 'Self-updater MUST preserve existing secrets');
     assert(upload.byteLength > 200000, 'Uploaded Worker bundle must contain full compiled script');
-    console.log(`✓ [15/16] GitHub Self-Updater (AralDev/Aral) + Tab 05 Spacing (${gapTab5}px == ${copyAndSpacingAudit.gapTab1}px) + Clean Captions verified!`);
+    console.log(`✓ [15/16] GitHub Self-Updater (Aral-Dev/aral-ultra) + Tab 05 Spacing (${gapTab5}px == ${copyAndSpacingAudit.gapTab1}px) + Clean Captions verified!`);
 
     // ── TEST 16: Server-Side Family Filter — tunnel gate + private DoH Family upgrade ──
     const boot16 = await (await fetch(`${BASE}/api/bootstrap`, { headers: { cookie } })).json();
@@ -865,7 +867,7 @@ async function main() {
     assert.equal(famOffRes.status, 200);
     console.log('✓ [16/16] Server-Side Family Filter -> DoH sinkhole + ordinary resolve + live tunnel 200 + default OFF');
 
-    // ── TEST 17: ULTRA v4.1 — extended feature set (feed alias, auto-update, restart-core,
+    // ── TEST 17: ULTRA v4.2 — extended feature set (feed alias, auto-update, restart-core,
     //    pools sampling, per-user ports + pool type + separate request reset, lifetime & deleted
     //    accounting, mid-connection heartbeat enforcement, CF-token password recovery) ──
 
@@ -1013,12 +1015,12 @@ async function main() {
     const reJson = await reSetup.json();
     assert(reJson.users.some((u) => u.name === 'hb-watch'), 'subscribers must survive the recovery cycle');
     assert(reJson.settings && typeof reJson.settings.wsPath === 'string', 'settings must survive the recovery cycle');
-    console.log('✓ [17/17] ULTRA v4.1 Extended -> feed alias, auto-update toggle, restart-core, pool sampling, per-user ports/poolType/req-reset, lifetime+deleted accounting, live heartbeat kill, CF-token recovery — ALL VERIFIED!');
+    console.log('✓ [17/17] ULTRA v4.2 Extended -> feed alias, auto-update toggle, restart-core, pool sampling, per-user ports/poolType/req-reset, lifetime+deleted accounting, live heartbeat kill, CF-token recovery — ALL VERIFIED!');
 
     assert.equal(pageErrors.length, 0, `Unexpected browser JS errors: ${pageErrors.join('; ')}`);
     await browser.close();
     assert(!serverLogs.includes('Uncaught'), `Unexpected Uncaught in workerd logs:\n${serverLogs}`);
-    console.log('\nALL 17/17 ARAL ULTRA v4.1.0 E2E VERIFICATION SUITES PASSED WITH ZERO ERRORS!');
+    console.log('\nALL 17/17 ARAL ULTRA v4.2.0 E2E VERIFICATION SUITES PASSED WITH ZERO ERRORS!');
   } catch (err) {
     console.error('\nTEST FAILED:', err);
     if (serverLogs) console.error('SERVER LOGS:\n', serverLogs.slice(-1500));
