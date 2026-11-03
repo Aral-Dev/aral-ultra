@@ -14,13 +14,37 @@
  *   proxy → exit-proxy list, JSON [{p:"socks5://host:port", c:"DE", vip:true?}]
  */
 
-import { POOL_KEYS, POOL_LIMITS, safeJsonParseGuard } from './poolutil.js';
+import { DEFAULT_DATA_REPO, POOL_KEYS, POOL_LIMITS, POOL_PROVISION_KEY, safeJsonParseGuard } from './poolutil.js';
 
 const RAM_TTL_MS = 10 * 60_000;
 const REPO_TTL_MS = 60 * 60_000;
 
 const ramCache = new Map(); // kind -> { data, at }
 const repoFetchAt = new Map(); // kind -> ts
+
+/* ULTRA v4.2 BUGFIX: `getPool` previously read `env.__settingsDataRepo`, a key that was
+ * only injected by the manual /api/pools/fetch route. Clean-IP rotation during real
+ * subscription serving therefore NEVER used the configured GitHub repo and silently
+ * fell back to the near-empty built-in defaults. The settings layer now publishes the
+ * active repo here once per request lifecycle via setActiveDataRepo(). */
+let activeDataRepo = '';
+
+/** Publish the panel's configured data repo (called by the worker once settings are loaded). */
+export function setActiveDataRepo(repo) {
+  const clean = String(repo || '').trim();
+  if (clean && /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(clean)) {
+    if (clean !== activeDataRepo) {
+      activeDataRepo = clean;
+      repoFetchAt.clear();
+    }
+  } else if (!clean) {
+    activeDataRepo = '';
+  }
+}
+
+export function getActiveDataRepo() {
+  return activeDataRepo;
+}
 
 export function findKVBinding(env) {
   try {
@@ -115,12 +139,12 @@ export async function getPool(env, kind, { forceRepo = false } = {}) {
   }
 
   if ((!data || !data.length) && env) {
-    const repo = String(env.__settingsDataRepo || '').trim();
+    const repo = String(env.__settingsDataRepo || activeDataRepo || '').trim();
     if (repo && /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo)) {
       const lastFetch = repoFetchAt.get(kind) || 0;
       if (forceRepo || now - lastFetch > REPO_TTL_MS) {
         repoFetchAt.set(kind, now);
-        const remote = await fetchRepoPool(repo, kind);
+        const remote = await fetchRepoPool(env, repo, kind);
         if (remote && remote.length) data = remote;
       }
     }
@@ -136,7 +160,8 @@ export function invalidatePoolCache(kind) {
   else ramCache.clear();
 }
 
-async function fetchRepoPool(repo, kind) {
+async function fetchRepoPool(env, repo, kind) {
+  const rawBase = String(env?.NL_GH_RAW_BASE || 'https://raw.githubusercontent.com').replace(/\/+$/, '');
   const files = {
     proxy: ['data/proxy/ALL.txt'],
     ips4: ['data/ips.txt'],
@@ -147,7 +172,7 @@ async function fetchRepoPool(repo, kind) {
   const tid = setTimeout(() => { try { ctrl.abort(); } catch {} }, 8000);
   try {
     for (const file of files[kind] || []) {
-      const res = await fetch(`https://raw.githubusercontent.com/${repo}/main/${file}`, {
+      const res = await fetch(`${rawBase}/${repo}/main/${file}`, {
         signal: ctrl.signal,
         headers: { 'user-agent': 'ARAL-Ultra-Pool/4.0' },
       });
@@ -259,3 +284,165 @@ export const DEFAULT_POOLS = {
   dom: ['www.speedtest.net', 'www.cloudflare.com', 'cp.cloudflare.com'],
   proxy: [],
 };
+
+/* ─────────────────────────── ULTRA v4.2: one-time repo provisioning ─────────────────────────── */
+
+/**
+ * Reservoir-sample up to `want` non-empty lines from a potentially huge text WITHOUT
+ * materialising a giant split() array (keeps Worker CPU budget tiny even on multi-MB
+ * pool files like a 80k-line proxy list). Returns sampled raw lines.
+ */
+export function sampleLinesFromText(text, want) {
+  const src = String(text || '');
+  const out = [];
+  if (!src || want <= 0) return out;
+  const maxScan = Math.min(src.length, 6_000_000);
+  let seen = 0;
+  let start = 0;
+  while (start < maxScan) {
+    let nl = src.indexOf('\n', start);
+    let end = nl === -1 ? maxScan : nl;
+    // trim trailing \r
+    let lineEnd = end;
+    if (lineEnd > start && src.charCodeAt(lineEnd - 1) === 13) lineEnd -= 1;
+    if (lineEnd > start) {
+      const line = src.slice(start, lineEnd);
+      seen += 1;
+      if (out.length < want) {
+        out.push(line);
+      } else {
+        const i = Math.floor(Math.random() * seen);
+        if (i < want) out[i] = line;
+      }
+    }
+    if (nl === -1) break;
+    start = nl + 1;
+  }
+  return out;
+}
+
+const PROVISION_TARGETS = [
+  { kind: 'ips4', file: 'data/ips.txt', sample: 4000 },
+  { kind: 'ips6', file: 'data/ip6.txt', sample: 1600 },
+  { kind: 'dom', file: 'data/dom.txt', sample: 1200 },
+  { kind: 'proxy', file: 'data/proxy/ALL.txt', sample: 2600 },
+];
+
+const provisionMem = { checkedAt: 0, done: false };
+
+/**
+ * ULTRA v4.2 — “clean IPs ready by default”:
+ * Runs once per deployment (KV flag + RAM cache). Pulls a bounded sample of the pool
+ * files from the configured GitHub repo (default: Aral-Dev/aral-ultra data/ folder) and
+ * persists them into KV, then samples the fresh IPv4 pool into the panel's default
+ * clean-IP list so rotation & node generation have real clean addresses immediately.
+ * Designed for `ctx.waitUntil()` — never throws, never blocks the response.
+ */
+export async function provisionPoolsFromRepo(env, state, { force = false, persistState = null } = {}) {
+  const now = Date.now();
+  try {
+    if (!force) {
+      if (provisionMem.done && now - provisionMem.checkedAt < 30 * 60_000) return null;
+      provisionMem.checkedAt = now;
+    }
+    const kv = findKVBinding(env);
+    if (!kv) return null;
+
+    // Test/dev escape hatch: deterministic E2E suites disable background provisioning
+    if (env?.NL_DISABLE_POOL_PROVISION === '1') {
+      provisionMem.done = true;
+      provisionMem.checkedAt = now;
+      return null;
+    }
+
+    if (!force) {
+      try {
+        const flag = await kv.get(POOL_PROVISION_KEY, 'text');
+        if (flag) {
+          provisionMem.done = true;
+          provisionMem.checkedAt = now;
+          return null;
+        }
+      } catch {}
+    }
+
+    if (!state || !state.settings) return null;
+    const repo = String(state.settings.dataRepo || '').trim();
+    if (!repo || !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo)) {
+      // Admin disabled repo fetching — mark done so we stop checking
+      try { await kv.put(POOL_PROVISION_KEY, JSON.stringify({ at: now, repo: '', skipped: true })); } catch {}
+      provisionMem.done = true;
+      provisionMem.checkedAt = now;
+      return null;
+    }
+
+    const results = {};
+    let ips4Sample = [];
+    for (const target of PROVISION_TARGETS) {
+      // Skip kinds that already have KV data (admin may have uploaded custom pools)
+      try {
+        const existing = await kv.get(POOL_KEYS[target.kind], 'text');
+        if (existing) {
+          results[target.kind] = -1; // kept existing
+          if (target.kind === 'ips4') {
+            const arr = safeJsonParseGuard(existing, []);
+            if (Array.isArray(arr) && arr.length) ips4Sample = arr;
+          }
+          continue;
+        }
+      } catch {}
+
+      let text = '';
+      try {
+        const rawBase = String(env?.NL_GH_RAW_BASE || 'https://raw.githubusercontent.com').replace(/\/+$/, '');
+        const res = await fetch(`${rawBase}/${repo}/main/${target.file}`, {
+          headers: { 'user-agent': 'ARAL-Ultra-Provision/4.2' },
+          signal: AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined,
+        });
+        if (res.ok) text = await res.text();
+      } catch {}
+      if (!text) {
+        results[target.kind] = 0;
+        continue;
+      }
+      const lines = sampleLinesFromText(text, target.sample);
+      const parsed = parseListText(lines.join('\n'), target.kind);
+      results[target.kind] = parsed.length;
+      if (parsed.length) {
+        if (target.kind === 'ips4') ips4Sample = parsed;
+        await savePool(env, target.kind, parsed);
+      }
+    }
+
+    // Seed the panel's default clean-IP list with a fresh sample from the repo pool,
+    // but never overwrite a list the admin has customized.
+    let cleanSeeded = 0;
+    const curClean = Array.isArray(state.settings.cleanIPs) ? state.settings.cleanIPs : [];
+    const factoryDefault = curClean.length === 0 ||
+      (curClean.length === 1 && /^www\.speedtest\.net(#|$)/.test(curClean[0]));
+    if (factoryDefault && ips4Sample.length) {
+      const picks = sampleFrom(ips4Sample, Math.min(24, ips4Sample.length));
+      const merged = ['www.speedtest.net#Speedtest'];
+      for (const p of picks) {
+        const addr = String(p).split('#')[0].trim();
+        if (addr && !merged.some((m) => m.split('#')[0] === addr)) merged.push(addr);
+      }
+      state.settings.cleanIPs = merged.slice(0, 80);
+      cleanSeeded = merged.length - 1;
+    }
+
+    try {
+      await kv.put(POOL_PROVISION_KEY, JSON.stringify({ at: now, repo, results, cleanSeeded }));
+    } catch {}
+    invalidatePoolCache();
+    provisionMem.done = true;
+    provisionMem.checkedAt = now;
+
+    if (typeof persistState === 'function') {
+      try { await persistState(env, state); } catch {}
+    }
+    return { repo, results, cleanSeeded };
+  } catch {
+    return null;
+  }
+}

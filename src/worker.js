@@ -54,7 +54,8 @@ import {
   renderDecoyGazette,
   serveSubscription,
 } from './sub.js';
-import { clearPool, getPool, invalidatePoolCache, parseListText, sampleFrom, savePool } from './pools.js';
+import { clearPool, getPool, invalidatePoolCache, parseListText, provisionPoolsFromRepo, sampleFrom, savePool, setActiveDataRepo } from './pools.js';
+import { handleTgBotUpdate, setTgApiBase, tgBotConnect, tgBotDisconnect, tgBotPublicInfo, tgBotStatus } from './tgbot.js';
 import { getInlineAssets, getPanelHtml } from './generated/ui.js';
 
 const SESSION_COOKIE = 'nl_sess';
@@ -292,6 +293,22 @@ export default {
 
       const runtime = await loadRuntimeState(env);
 
+      // ULTRA v4.2: publish the configured data repo for the pools layer so
+      // clean-IP rotation / exit-proxy replacement actually use the GitHub repo.
+      try { setActiveDataRepo(runtime.settings ? runtime.settings.dataRepo : ''); } catch {}
+
+      // ULTRA v4.2: optional Telegram API base override (E2E test harness only)
+      try { if (env?.NL_TG_API_BASE) setTgApiBase(env.NL_TG_API_BASE); } catch {}
+
+      // ULTRA v4.2: one-time background provisioning of data pools + default clean IPs
+      // from the configured repo (Aral-Dev/aral-ultra data/ folder). Cheap KV-flag check,
+      // runs at most once per deployment, never blocks the request.
+      try {
+        if (runtime.kvBound && runtime.initialized && ctx && typeof ctx.waitUntil === 'function') {
+          ctx.waitUntil(provisionPoolsFromRepo(env, runtime, { persistState: saveRuntimeState }));
+        }
+      } catch {}
+
       // 1) WebSocket Upgrade: Official Telegram Web Proxy (`/api/v1/ws`) OR VLESS/Trojan Tunnel
       if (upgradeHeader === 'websocket') {
         const wsProto = request.headers.get('sec-websocket-protocol') || '';
@@ -329,7 +346,7 @@ export default {
 
       // 3) Admin Panel REST API
       if (path.startsWith('/api/')) {
-        return await handleApi(request, url, env, runtime);
+        return await handleApi(request, url, env, runtime, ctx);
       }
 
       // 4) Private DoH endpoint: /dns-query/:subToken
@@ -426,7 +443,7 @@ export default {
 
 /* --------------------------------------------------------- REST API Router */
 
-async function handleApi(request, url, env, runtime) {
+async function handleApi(request, url, env, runtime, ctx = {}) {
   const path = url.pathname;
   const method = request.method.toUpperCase();
   const cfInfo = extractClientInfo(request, url);
@@ -694,6 +711,16 @@ async function handleApi(request, url, env, runtime) {
     return json({ ok: true }, 200, {
       'set-cookie': `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`,
     });
+  }
+
+  // ---- POST /api/tgbot/hook/:secret — Telegram webhook (public, secret-verified) ----
+  // Telegram POSTs updates here; the path secret + Telegram's own secret header must
+  // both match settings.tgBotHookSecret (checked inside the handler).
+  if (path.startsWith('/api/tgbot/hook/') && method === 'POST') {
+    return await handleTgBotUpdate(request, url, env, runtime, { persistState: saveRuntimeState });
+  }
+  if (path.startsWith('/api/tgbot/hook/') && method === 'GET') {
+    return json({ ok: false, error: 'این مسیر فقط برای وبهوک تلگرام است (POST).' }, 405);
   }
 
   // =========================================================================
@@ -1150,7 +1177,7 @@ async function handleApi(request, url, env, runtime) {
     const kinds = ['ips4', 'ips6', 'dom', 'proxy'];
     const results = {};
     for (const kind of kinds) {
-      const data = await getPool({ __settingsDataRepo: repo }, kind, { forceRepo: true });
+      const data = await getPool({ ...env, __settingsDataRepo: repo }, kind, { forceRepo: true });
       results[kind] = data.length;
       if (data.length) await savePool(env, kind, data);
     }
@@ -1169,6 +1196,57 @@ async function handleApi(request, url, env, runtime) {
     appendLog(state, 'tgproxy', 'کلید مخفی پروکسی تلگرام بازتولید شد');
     const saved = await saveRuntimeState(env, state);
     return json(buildFullAdminPayload(saved, url.host, cfInfo));
+  }
+
+  // ---- ULTRA v4.2: Telegram management bot ----
+  if (path === '/api/tgbot/save' && method === 'POST') {
+    const body = await readJsonBody(request);
+    if (body.__parseError) return json({ ok: false, error: body.__parseError }, 400);
+    const token = String(body.token || '').trim();
+    const adminIds = String(body.adminIds || '').trim();
+    if (!token && !state.settings.tgBotToken) {
+      return json({ ok: false, error: 'توکن بات را از @BotFather وارد کنید.' }, 400);
+    }
+    if (!adminIds && !state.settings.tgBotAdminIds) {
+      return json({ ok: false, error: 'آیدی عددی ادمین بات لازم است (از @userinfobot).' }, 400);
+    }
+    const effectiveToken = token || state.settings.tgBotToken;
+    const effectiveAdmins = adminIds || state.settings.tgBotAdminIds;
+
+    const result = await tgBotConnect(env, state, {
+      token: effectiveToken,
+      adminIds: effectiveAdmins,
+      host: url.host,
+      persistState: saveRuntimeState,
+    });
+    if (!result.ok) {
+      appendLog(state, 'tgbot', `اتصال بات تلگرام ناموفق: ${result.error}`);
+      try { await saveRuntimeState(env, state); } catch {}
+      return json({ ok: false, error: result.error }, 400);
+    }
+    appendLog(state, 'tgbot', `بات تلگرام @${result.bot.username} متصل و وبهوک ست شد`);
+    const saved = await saveRuntimeState(env, state);
+    return json({ ok: true, ...result, payload: buildFullAdminPayload(saved, url.host, cfInfo) });
+  }
+
+  if (path === '/api/tgbot/disconnect' && method === 'POST') {
+    const result = await tgBotDisconnect(env, state, { persistState: saveRuntimeState });
+    appendLog(state, 'tgbot', 'بات تلگرام قطع و وبهوک حذف شد');
+    const saved = await saveRuntimeState(env, state);
+    return json({ ok: true, ...result, payload: buildFullAdminPayload(saved, url.host, cfInfo) });
+  }
+
+  if (path === '/api/tgbot/status' && method === 'GET') {
+    const status = await tgBotStatus(state);
+    return json(status);
+  }
+
+  if (path === '/api/pools/provision' && method === 'POST') {
+    // Force one clean-IP / pool provisioning pass from the configured data repo
+    const result = await provisionPoolsFromRepo(env, state, { force: true, persistState: saveRuntimeState });
+    appendLog(state, 'pools', result ? `نصب پیش‌فرض‌ها از مخزن ${result.repo} انجام شد` : 'دریافت پیش‌فرض‌ها انجام نشد (مخزن نامعتبر یا در دسترس نیست)');
+    const saved = await saveRuntimeState(env, state);
+    return json({ ok: Boolean(result), result: result || null, payload: buildFullAdminPayload(saved, url.host, cfInfo) });
   }
 
   // ---- POST /api/tools/probe-proxy & /api/test-proxyip ----
@@ -1390,13 +1468,13 @@ async function handleApi(request, url, env, runtime) {
     });
   }
 
-  // ---- GET /api/update/check (Hardcoded GitHub: AralDev/Aral) ----
+  // ---- GET /api/update/check (Hardcoded GitHub: Aral-Dev/aral-ultra) ----
   if (path === '/api/update/check' && method === 'GET') {
     const info = await checkOfficialGitHubUpdate(state.cfApi, url.host, env);
     return json(info, info.ok ? 200 : 502);
   }
 
-  // ---- POST /api/update/apply (In-Panel Self-Update from AralDev/Aral) ----
+  // ---- POST /api/update/apply (In-Panel Self-Update from Aral-Dev/aral-ultra) ----
   if (path === '/api/update/apply' && method === 'POST') {
     const body = await readJsonBody(request);
     if (body.__parseError) return json({ ok: false, error: body.__parseError }, 400);
@@ -1549,6 +1627,13 @@ function buildFullAdminPayload(state, host, cf = null) {
       ? buildTgProxyLinks(host, state.settings.tgProxySecret, state.settings.tgProxyDomain)
       : null;
 
+  // ULTRA v4.2: never ship the raw bot token to the UI — masked form only
+  // (the stored value in KV is untouched; re-connecting needs a fresh paste).
+  const rawToken = String(state.settings.tgBotToken || '');
+  const publicSettings = rawToken
+    ? { ...state.settings, tgBotToken: rawToken.slice(0, 8) + '••••••••' + rawToken.slice(-4) }
+    : state.settings;
+
   return {
     ok: true,
     version: PANEL_VERSION,
@@ -1560,8 +1645,9 @@ function buildFullAdminPayload(state, host, cf = null) {
     kvName: state.kvName,
     authenticated: true,
     brand: PANEL_BRAND,
-    settings: state.settings,
+    settings: publicSettings,
     cfIntegration: sanitizeCfPublicInfo(state.cfApi, host),
+    tgBot: tgBotPublicInfo(state.settings),
     updater: {
       repo: GITHUB_REPO,
       repoUrl: GITHUB_REPO_URL,
@@ -2184,7 +2270,7 @@ async function applyOfficialGitHubSelfUpdate({ token, accountId, scriptName, env
     };
   }
 
-  // 3. Check official GitHub release / main bundle from AralDev/Aral
+  // 3. Check official GitHub release / main bundle from Aral-Dev/aral-ultra
   const updateInfo = await checkOfficialGitHubUpdate({ token, scriptName: targetScript }, '', env);
   if (!updateInfo.ok) {
     return { ok: false, error: updateInfo.error || 'خطا در دریافت اطلاعات مخزن گیت‌هاب.' };

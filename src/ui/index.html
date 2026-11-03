@@ -224,8 +224,8 @@
         <tr>
           <th><span class="fa">مخزن رسمی</span><span class="en">REPOSITORY</span></th>
           <td>
-            <a class="inline-link mono" href="https://github.com/AralDev/Aral" target="_blank" rel="noopener">
-              github.com/AralDev/Aral
+            <a class="inline-link mono" href="https://github.com/Aral-Dev/aral-ultra" target="_blank" rel="noopener">
+              github.com/Aral-Dev/aral-ultra
               <svg class="ic ic-sm"><use href="#i-external"/></svg>
             </a>
           </td>
@@ -275,7 +275,7 @@
           <span class="fa">بروزرسانی مستقیم پنل</span><span class="en">SELF-UPDATE NOW</span>
         </button>
       </div>
-      <a class="btn ghost sm-btn" id="gh-dl-link" href="https://github.com/AralDev/Aral/releases" target="_blank" rel="noopener">
+      <a class="btn ghost sm-btn" id="gh-dl-link" href="https://github.com/Aral-Dev/aral-ultra/releases" target="_blank" rel="noopener">
         <svg class="ic ic-sm"><use href="#i-external"/></svg>
         <span class="fa">صفحهٔ انتشار</span><span class="en">RELEASES</span>
       </a>
@@ -594,7 +594,7 @@
         </button>
 
         <!-- Compact Hardcoded GitHub Updater Pill -->
-        <button class="quota-pill" id="btn-gh-updater" type="button" title="github.com/AralDev/Aral">
+        <button class="quota-pill" id="btn-gh-updater" type="button" title="github.com/Aral-Dev/aral-ultra">
           <svg class="ic ic-sm"><use href="#i-cloud-up"/></svg>
           <span class="quota-lbl"><span class="fa">بروزرسانی</span><span class="en">UPDATE</span></span>
           <b class="mono" id="gh-mini-ver">V{{VERSION}}</b>
@@ -1096,8 +1096,9 @@
             <button class="btn primary sm-btn" id="btn-pool-save" type="button"><svg class="ic ic-sm"><use href="#i-check"/></svg><span class="fa">ذخیرهٔ مخزن</span><span class="en">SAVE POOL</span></button>
             <button class="btn ghost sm-btn" id="btn-pool-load" type="button"><span class="fa">نمایش فعلی</span><span class="en">LOAD CURRENT</span></button>
             <button class="btn danger sm-btn" id="btn-pool-clear" type="button"><span class="fa">پاک کردن</span><span class="en">CLEAR</span></button>
+            <button class="btn ghost sm-btn" id="btn-pool-provision" type="button"><svg class="ic ic-sm"><use href="#i-radar"/></svg><span class="fa">نصب پیش‌فرض‌ها از مخزن رسمی</span><span class="en">INSTALL OFFICIAL DEFAULTS</span></button>
             <span class="bar" style="flex:1"></span>
-            <input id="pool-repo" dir="ltr" type="text" placeholder="owner/repo" style="flex:1;min-width:150px">
+            <input id="pool-repo" dir="ltr" type="text" placeholder="Aral-Dev/aral-ultra" style="flex:1;min-width:150px">
             <button class="btn ghost sm-btn" id="btn-pool-fetch" type="button"><svg class="ic ic-sm"><use href="#i-cloud-up"/></svg><span class="fa">دریافت از گیت‌هاب</span><span class="en">FETCH FROM GITHUB</span></button>
           </div>
         </div>
@@ -1174,6 +1175,50 @@
               <svg class="ic ic-sm"><use href="#i-copy"/></svg>
               <span class="fa">کپی لینک اشتراک تلگرام (t.me)</span><span class="en">COPY SHAREABLE t.me LINK</span>
             </button>
+          </div>
+        </div>
+
+        <!-- ULTRA v4.2: Telegram Management Bot -->
+        <div class="card field-full">
+          <p class="kicker">
+            <svg class="ic"><use href="#i-send"/></svg>
+            <span class="fa">بات مدیریتی تلگرام (ست خودکار وبهوک + ارسال QR و لینک‌ها)</span>
+            <span class="en">TELEGRAM MANAGEMENT BOT (AUTO-WEBHOOK + QR &amp; LINKS)</span>
+          </p>
+          <p class="hint">
+            <span class="fa">توکن بات را از <code>@BotFather</code> بگیرید، آیدی عددی خود را (از <code>@userinfobot</code>) وارد کنید و «اتصال» را بزنید؛ وبهوک به‌طور خودکار روی همین ورکر ست می‌شود. سپس در تلگرام <code>/start</code> بزنید: منوی «مشترکین» فهرست کامل را نشان می‌دهد و با انتخاب هر مشترک، <strong>QR پنل + همهٔ لینک‌های اشتراک + نودهای اصلی</strong> برایتان ارسال می‌شود.</span>
+            <span class="en">Paste a BotFather token + your numeric Telegram ID and hit Connect — the webhook is set automatically. /start then shows the Subscribers menu; tapping a subscriber sends the panel QR plus every subscription link.</span>
+          </p>
+          <div class="field-grid" style="margin-top:10px">
+            <div>
+              <label class="fld-label" for="s-tgbot-token"><span class="fa">توکن بات (Bot Token از @BotFather)</span><span class="en">BOT TOKEN</span></label>
+              <input id="s-tgbot-token" dir="ltr" type="password" placeholder="123456789:AAHf3..." autocomplete="off">
+            </div>
+            <div>
+              <label class="fld-label" for="s-tgbot-admin"><span class="fa">آیدی عددی ادمین بات (از @userinfobot — با کاما چند نفر)</span><span class="en">ADMIN NUMERIC ID(S)</span></label>
+              <input id="s-tgbot-admin" dir="ltr" type="text" placeholder="123456789, 987654321">
+            </div>
+          </div>
+          <div class="actions" style="margin-top:10px">
+            <button class="btn primary sm-btn" id="btn-tgbot-connect" type="button">
+              <svg class="ic ic-sm"><use href="#i-check"/></svg>
+              <span class="fa">اتصال بات و ست خودکار وبهوک</span><span class="en">CONNECT BOT &amp; AUTO-SET WEBHOOK</span>
+            </button>
+            <button class="btn ghost sm-btn" id="btn-tgbot-status" type="button">
+              <svg class="ic ic-sm"><use href="#i-radar"/></svg>
+              <span class="fa">بررسی وضعیت اتصال</span><span class="en">CHECK STATUS</span>
+            </button>
+            <button class="btn danger sm-btn" id="btn-tgbot-disconnect" type="button">
+              <svg class="ic ic-sm"><use href="#i-x"/></svg>
+              <span class="fa">قطع اتصال بات</span><span class="en">DISCONNECT BOT</span>
+            </button>
+            <a class="btn ghost sm-btn" id="tgbot-open-chat" href="#" target="_blank" rel="noopener noreferrer" hidden>
+              <svg class="ic ic-sm"><use href="#i-send"/></svg>
+              <span class="fa">رفتن به چت بات</span><span class="en">OPEN BOT CHAT</span>
+            </a>
+          </div>
+          <div class="range-panel" id="tgbot-status-panel" hidden style="margin-top:10px">
+            <div class="stat-strip mono sm" id="tgbot-status-body">—</div>
           </div>
         </div>
       </div>

@@ -18,9 +18,10 @@ import {
 } from './crypto.js';
 
 export const PANEL_BRAND = 'Aral Ultra';
-export const PANEL_VERSION = '4.1.0';
-export const GITHUB_REPO = 'AralDev/Aral';
-export const GITHUB_REPO_URL = 'https://github.com/AralDev/Aral';
+export const PANEL_VERSION = '4.2.0';
+/** Official repository — data pools (data/ folder) AND panel self-update both resolve here. */
+export const GITHUB_REPO = 'Aral-Dev/aral-ultra';
+export const GITHUB_REPO_URL = 'https://github.com/Aral-Dev/aral-ultra';
 export const STATE_KEY = 'nl:state:v2';
 const CACHE_TTL_MS = 15_000;
 const USAGE_FLUSH_INTERVAL_MS = 45_000;
@@ -108,8 +109,19 @@ export const DEFAULT_SETTINGS = {
   // and applies new releases without operator interaction; off by default)
   autoUpdate: false,
 
-  // ULTRA: GitHub repo (`owner/repo`) hosting optional data pools under data/ (IPs, domains, proxies)
-  dataRepo: '',
+  // ULTRA: GitHub repo (`owner/repo`) hosting data pools under data/ (IPs, domains, proxies).
+  // Defaults to the official ARAL ULTRA repository so clean-IP rotation works out of the box.
+  dataRepo: GITHUB_REPO,
+
+  /* ── ULTRA v4.2: Telegram management bot (webhook-based, admin-only) ── */
+  // Bot token issued by @BotFather, e.g. "123456789:AAHf3..."
+  tgBotToken: '',
+  // Comma-separated numeric Telegram chat IDs allowed to control the bot
+  tgBotAdminIds: '',
+  // 32-hex secret shared with Telegram (sent back on every webhook call as X-Telegram-Bot-Api-Secret-Token)
+  tgBotHookSecret: '',
+  // Non-secret bot metadata for the panel UI: { botId, username, firstName, webhookSetAt, lastOkAt, lastError }
+  tgBotInfo: null,
 };
 
 export const POOL_KEYS = {
@@ -314,8 +326,52 @@ export function sanitizeSettings(patch = {}, current = DEFAULT_SETTINGS) {
   }
 
   // ULTRA: optional GitHub data-repo for community IP/proxy pools (`owner/repo`)
+  // v4.2 BUGFIX: the old charset regex ate the "/" separator, corrupting every
+  // saved repo name (e.g. "Aral-Dev/aral-ultra" → "Aral-Devaral-ultra") — which
+  // silently broke repo pool fetching and clean-IP rotation afterwards.
   if (typeof safePatch.dataRepo === 'string') {
-    next.dataRepo = safePatch.dataRepo.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 96);
+    next.dataRepo = safePatch.dataRepo
+      .trim()
+      .replace(/^https?:\/\/(www\.)?github\.com\//i, '')
+      .replace(/\.git\/?$/i, '')
+      .replace(/[^a-zA-Z0-9._/-]/g, '')
+      .replace(/\/{2,}/g, '/')
+      .replace(/^\/+|\/+$/g, '')
+      .slice(0, 96);
+  }
+
+  /* ── ULTRA v4.2: Telegram bot settings ── */
+  if (typeof safePatch.tgBotToken === 'string') {
+    const tok = safePatch.tgBotToken.trim();
+    // Telegram bot tokens look like "<bot_id>:<35 secret chars>"; letters, digits, _ and -
+    next.tgBotToken = /^\d{6,12}:[A-Za-z0-9_-]{30,60}$/.test(tok) ? tok : '';
+  }
+  if (typeof safePatch.tgBotAdminIds === 'string') {
+    const ids = safePatch.tgBotAdminIds
+      .split(/[\s,;]+/)
+      .map((s) => s.trim().replace(/^@/, ''))
+      .filter((s) => /^-?\d{3,20}$/.test(s));
+    next.tgBotAdminIds = [...new Set(ids)].slice(0, 12).join(',');
+  }
+  if (typeof safePatch.tgBotHookSecret === 'string' && /^[0-9a-f]{32}$/.test(safePatch.tgBotHookSecret.trim())) {
+    next.tgBotHookSecret = safePatch.tgBotHookSecret.trim();
+  }
+  if (!next.tgBotHookSecret) {
+    next.tgBotHookSecret = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+  }
+  if (safePatch.tgBotInfo !== undefined) {
+    const info = safePatch.tgBotInfo && typeof safePatch.tgBotInfo === 'object' ? safePatch.tgBotInfo : null;
+    next.tgBotInfo = info
+      ? {
+          botId: String(info.botId || '').slice(0, 20),
+          username: String(info.username || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 64),
+          firstName: String(info.firstName || '').slice(0, 64),
+          canJoinGroups: Boolean(info.canJoinGroups),
+          webhookSetAt: Math.max(0, Number(info.webhookSetAt) || 0),
+          lastOkAt: Math.max(0, Number(info.lastOkAt) || 0),
+          lastError: String(info.lastError || '').slice(0, 160),
+        }
+      : null;
   }
 
   return next;
@@ -680,6 +736,10 @@ export async function loadRuntimeState(env, forceRefresh = false) {
       rawSettings.nat64Prefixes = [...DEFAULT_NAT64_PREFIXES];
     }
   }
+
+  // ULTRA v4.2: legacy panels (v3.x) and fresh KV rows never had the repo constants;
+  // keep the official data-repo + telegram-bot fields coherent after every load.
+  if (!rawSettings.dataRepo) rawSettings.dataRepo = GITHUB_REPO;
 
   const rawCfApi = raw.cfApi && typeof raw.cfApi === 'object' ? raw.cfApi : {};
   const cfApi = {

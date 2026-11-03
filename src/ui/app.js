@@ -1,9 +1,9 @@
-/* ARAL v3.0.0 — Complete Client Application (Vanilla ES6, zero external deps, zero emojis) */
+/* ARAL v4.2.0 — Complete Client Application (Vanilla ES6, zero external deps, zero emojis) */
 (function () {
   'use strict';
 
-  var OFFICIAL_GITHUB_REPO = 'AralDev/Aral';
-  var OFFICIAL_GITHUB_URL = 'https://github.com/AralDev/Aral';
+  var OFFICIAL_GITHUB_REPO = 'Aral-Dev/aral-ultra';
+  var OFFICIAL_GITHUB_URL = 'https://github.com/Aral-Dev/aral-ultra';
 
   var $ = function (id) { return document.getElementById(id); };
   var html = document.documentElement;
@@ -83,7 +83,8 @@
     usersSelected: [],
     currentNodes: [],
     currentQrText: '',
-    currentQrCaption: 'SUBSCRIPTION'
+    currentQrCaption: 'SUBSCRIPTION',
+    tgBot: null
   };
 
   /* ------------------------------------------------- Helpers & Typography */
@@ -1142,7 +1143,7 @@
       effectiveExpiresAt: 0, remainingDays: 15, startOnFirstUse: true, status: 'active'
     };
     demoStore = {
-      version: '3.0.0',
+      version: '4.2.0',
       mode: 'admin', kvBound: true, kvName: 'PREVIEW_KV', initialized: true, authenticated: true,
       edge: 'FRA', host: 'aral.example.workers.dev',
       cfIntegration: {
@@ -1180,7 +1181,7 @@
       },
       users: [u1, u2],
       logs: [
-        { ts: Date.now() - 120000, event: 'setup', detail: 'پیش‌نمایش تعاملی پنل آماده است (V3.0.0)' },
+        { ts: Date.now() - 120000, event: 'setup', detail: 'پیش‌نمایش تعاملی پنل آماده است (V4.2.0)' },
         { ts: Date.now() - 30000, event: 'settings', detail: 'پروتکل‌های VLESS + Trojan + Telegram Web Proxy فعال شد' }
       ]
     };
@@ -1287,11 +1288,11 @@
           ok: true,
           repo: OFFICIAL_GITHUB_REPO,
           repoUrl: OFFICIAL_GITHUB_URL,
-          currentVersion: '3.0.0',
-          latestVersion: '3.0.0',
+          currentVersion: '4.2.0',
+          latestVersion: '4.2.0',
           updateAvailable: false,
           releaseUrl: OFFICIAL_GITHUB_URL + '/releases',
-          releaseNotes: 'ARAL v3.0.0 — Latest release installed.',
+          releaseNotes: 'ARAL v4.2.0 — Latest release installed.',
           cfConfigured: ds.cfIntegration.hasToken,
           canEditWorkers: true,
           scriptName: ds.cfIntegration.scriptName || 'aral'
@@ -1301,8 +1302,8 @@
         return {
           ok: true,
           updated: true,
-          previousVersion: '3.0.0',
-          targetVersion: '3.0.0',
+          previousVersion: '4.2.0',
+          targetVersion: '4.2.0',
           scriptName: (body && body.scriptName) || 'aral',
           reloadAfterMs: 1200
         };
@@ -1442,6 +1443,7 @@
       renderAdvisorSkeleton();
 
       STATE.settings = data.settings;
+      STATE.tgBot = data.tgBot || null;
       if (data.cfIntegration) STATE.cfIntegration = data.cfIntegration;
       STATE.users = data.users || [];
       STATE.logs = data.logs || [];
@@ -1454,6 +1456,7 @@
 
       renderAdminHeader();
       populateSettingsForms();
+      renderTgBotCard();
       renderUsersLedger();
       renderActivityLogs();
       updateTelemetryKpis();
@@ -2536,6 +2539,119 @@
     };
   }
 
+  /* ------------------ ULTRA v4.2: Telegram Management Bot card ---------------- */
+
+  function fmtTs(ts) {
+    if (!ts) return '—';
+    try {
+      return new Date(Number(ts)).toLocaleString('fa-IR');
+    } catch (e) { return '—'; }
+  }
+
+  function renderTgBotCard() {
+    var info = STATE.tgBot || null;
+    var configured = Boolean(info && info.configured);
+    if ($('s-tgbot-token')) $('s-tgbot-token').value = '';
+    if ($('s-tgbot-admin')) $('s-tgbot-admin').value = info && info.adminIds ? info.adminIds.join(', ') : '';
+    if ($('tgbot-open-chat')) {
+      if (configured && info.username) {
+        $('tgbot-open-chat').hidden = false;
+        $('tgbot-open-chat').href = 'https://t.me/' + info.username;
+      } else {
+        $('tgbot-open-chat').hidden = true;
+      }
+    }
+    var panel = $('tgbot-status-panel');
+    var body = $('tgbot-status-body');
+    if (!panel || !body) return;
+    if (!configured) {
+      panel.hidden = true;
+      body.textContent = '';
+      return;
+    }
+    var lines = [];
+    if (info.username) lines.push('بات: @' + info.username + (info.firstName ? ' (' + info.firstName + ')' : ''));
+    if (info.maskedToken) lines.push('توکن: ' + info.maskedToken);
+    lines.push('ادمین‌ها: ' + (info.adminIds && info.adminIds.length ? info.adminIds.join(', ') : '—'));
+    lines.push('وبهوک: ' + (info.webhookSetAt ? 'ست‌شده در ' + fmtTs(info.webhookSetAt) : '—'));
+    lines.push('آخرین موفقیت: ' + fmtTs(info.lastOkAt));
+    if (info.lastError) lines.push('آخرین خطا: ' + info.lastError);
+    body.innerHTML = lines.map(function (l) { return '<div style="padding:2px 0">' + l + '</div>'; }).join('');
+    panel.hidden = false;
+  }
+
+  async function refreshTgBotStatus(showToastFlag) {
+    try {
+      var r = await api('/api/tgbot/status', 'GET');
+      if (!r.configured) {
+        if (showToastFlag) showToast('بات هنوز متصل نشده است', 'Bot not connected yet');
+        return;
+      }
+      if (r.connected) {
+        STATE.tgBot = Object.assign({}, STATE.tgBot || {}, {
+          configured: true,
+          username: r.bot && r.bot.username ? r.bot.username : (STATE.tgBot && STATE.tgBot.username) || '',
+          firstName: r.bot && r.bot.firstName ? r.bot.firstName : '',
+          webhookSetAt: r.webhook && r.webhook.last_updated_date ? Number(r.webhook.last_updated_date) * 1000 : (STATE.tgBot && STATE.tgBot.webhookSetAt) || 0,
+          lastOkAt: Date.now(),
+          lastError: ''
+        });
+        renderTgBotCard();
+        showToast('بات متصل است: @' + (r.bot && r.bot.username ? r.bot.username : '?'), 'Bot connected: @' + (r.bot && r.bot.username ? r.bot.username : '?'));
+      } else {
+        if (STATE.tgBot) STATE.tgBot.lastError = r.error || 'getMe failed';
+        renderTgBotCard();
+        if (showToastFlag) showToast('اتصال بات برقرار نیست: ' + (r.error || 'نامشخص'), 'Bot unreachable: ' + (r.error || 'unknown'));
+      }
+    } catch (err) {
+      if (showToastFlag) showToast(err.message, err.message);
+    }
+  }
+
+  if ($('btn-tgbot-connect')) {
+    $('btn-tgbot-connect').onclick = async function () {
+      var token = $('s-tgbot-token') ? $('s-tgbot-token').value.trim() : '';
+      var adminIds = $('s-tgbot-admin') ? $('s-tgbot-admin').value.trim() : '';
+      if (!token && !(STATE.tgBot && STATE.tgBot.configured)) {
+        showToast('توکن بات را از @BotFather وارد کنید', 'Enter the BotFather token first');
+        return;
+      }
+      if (!adminIds) {
+        showToast('آیدی عددی ادمین را وارد کنید (از @userinfobot)', 'Enter the admin numeric ID (from @userinfobot)');
+        return;
+      }
+      var btn = $('btn-tgbot-connect');
+      btn.disabled = true;
+      try {
+        var r = await api('/api/tgbot/save', 'POST', { token: token, adminIds: adminIds });
+        $('s-tgbot-token').value = '';
+        showToast('بات @' + r.bot.username + ' متصل شد و وبهوک ست شد', 'Bot @' + r.bot.username + ' connected — webhook set');
+        ingestBootstrap(r.payload);
+        renderTgBotCard();
+      } catch (err) {
+        showToast(err.message, err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  }
+  if ($('btn-tgbot-status')) {
+    $('btn-tgbot-status').onclick = function () { refreshTgBotStatus(true); };
+  }
+  if ($('btn-tgbot-disconnect')) {
+    $('btn-tgbot-disconnect').onclick = async function () {
+      if (!window.confirm(tr('اتصال بات تلگرام قطع شود و وبهوک حذف شود؟', 'Disconnect the Telegram bot and remove the webhook?'))) return;
+      try {
+        var r = await api('/api/tgbot/disconnect', 'POST', {});
+        showToast('بات قطع شد', 'Bot disconnected');
+        ingestBootstrap(r.payload);
+        renderTgBotCard();
+      } catch (err) {
+        showToast(err.message, err.message);
+      }
+    };
+  }
+
   document.querySelectorAll('.frag-preset').forEach(function (btn) {
     btn.onclick = function () {
       $('s-frag-on').checked = true;
@@ -3259,10 +3375,10 @@
     }
   }, 180000);
 
-  /* -------- Hardcoded GitHub Updater (https://github.com/AralDev/Aral) -------- */
+  /* -------- Hardcoded GitHub Updater (https://github.com/Aral-Dev/aral-ultra) -------- */
 
   function syncGhUpdaterUI(ver) {
-    var curV = ver || (STATE.ghInfo && STATE.ghInfo.currentVersion) || '3.0.0';
+    var curV = ver || (STATE.ghInfo && STATE.ghInfo.currentVersion) || '4.2.0';
     if ($('gh-mini-ver')) $('gh-mini-ver').textContent = 'V' + curV;
     if ($('gh-cur-ver')) $('gh-cur-ver').textContent = 'V' + curV;
     if ($('gh-upd-dot')) {
@@ -3496,8 +3612,8 @@
       btn.disabled = true;
       showGhMessage(
         tr(
-          'در حال دریافت بستهٔ رسمی از github.com/AralDev/Aral و استقرار روی ورکر کلادفلر (حفظ کامل KV و مشترکین)…',
-          'Downloading official bundle from github.com/AralDev/Aral & deploying to Cloudflare Worker…'
+          'در حال دریافت بستهٔ رسمی از github.com/Aral-Dev/aral-ultra و استقرار روی ورکر کلادفلر (حفظ کامل KV و مشترکین)…',
+          'Downloading official bundle from github.com/Aral-Dev/aral-ultra & deploying to Cloudflare Worker…'
         ),
         true
       );
@@ -3646,6 +3762,26 @@
         Object.keys(r.results || {}).forEach(function (k) { parts.push(k + ': ' + r.results[k]); });
         showToast(parts.join(' · '), parts.join(' · '));
         loadPoolCurrent();
+      } catch (err) {
+        showToast(err.message, err.message);
+      }
+    };
+  }
+  if ($('btn-pool-provision')) {
+    $('btn-pool-provision').onclick = async function () {
+      showToast(tr('در حال نصب پیش‌فرض‌ها از مخزن رسمی…', 'Installing official defaults…'), tr('در حال نصب پیش‌فرض‌ها از مخزن رسمی…', 'Installing official defaults…'));
+      try {
+        var r = await api('/api/pools/provision', 'POST', {});
+        if (r.ok && r.result) {
+          var res = r.result.results || {};
+          var parts = [];
+          Object.keys(res).forEach(function (k) { parts.push(k + ': ' + (res[k] === -1 ? tr('حفظ شد', 'kept') : res[k])); });
+          showToast(tr('پیش‌فرض‌ها نصب شد — ', 'Defaults installed — ') + parts.join(' · '), 'Installed — ' + parts.join(' · '));
+          ingestBootstrap(r.payload);
+          loadPoolCurrent();
+        } else {
+          showToast(tr('نصب انجام نشد؛ مخزن را بررسی کنید', 'Install failed — check the repo'), tr('نصب انجام نشد؛ مخزن را بررسی کنید', 'Install failed — check the repo'));
+        }
       } catch (err) {
         showToast(err.message, err.message);
       }
